@@ -34,75 +34,60 @@ fn main() {
 
     match matches.subcommand() {
         Some(("run", run_matches)) => {
-            if run_matches.contains_id("image") {
-                let run_command_args: Vec<_> = run_matches
-                    .get_many::<String>("image")
-                    .expect("contains_id")
-                    .map(|s| s.as_str())
-                    .collect();
-                let image = run_command_args.join(", ");
-                create_session(&image);
-                return;
-            }
-        }
-        Some(("pull", run_matches)) => {
-            if run_matches.contains_id("name") {
-                let run_command_args: Vec<_> = run_matches
-                    .get_many::<String>("name")
-                    .expect("contains_id")
-                    .map(|s| s.as_str())
-                    .collect();
-                let image_name = run_command_args.join(", ");
-                pull_image(&image_name);
-                return;
-            }
+            let image = get_args(run_matches, "image").unwrap_or_else(|| "".to_owned());
+            execute("run", &image);
         }
         Some(("delete", run_matches)) => {
-            if run_matches.contains_id("id") {
-                let run_command_args: Vec<_> = run_matches
-                    .get_many::<String>("id")
-                    .expect("contains_id")
-                    .map(|s| s.as_str())
-                    .collect();
-                let container_id = run_command_args.join(", ");
-                delete_container(&container_id);
-                return;
-            }
+            let id = get_args(run_matches, "id").unwrap_or_else(|| "".to_owned());
+            execute("delete", &id);
+        }
+        Some(("pull", run_matches)) => {
+            let name = get_args(run_matches, "name").unwrap_or_else(|| "".to_owned());
+            execute("pull", &name);
         }
         _ => unreachable!(),
     }
 }
 
-fn create_session(image: &str) {
-    let mut cmd = Cmd::new("docker")
-        .args(&["run", "-it", &image, "bash"])
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
-
-    println!("[LOG] Connecting to SHELL...");
-    cmd.wait().expect("Unexpected Error");
+fn get_args(matches: &clap::ArgMatches, name: &str) -> Option<String> {
+    if matches.contains_id(name) {
+        let run_command_args: Vec<_> = matches
+            .get_many::<String>(name)
+            .expect("contains_id")
+            .map(|s| s.as_str())
+            .collect();
+        Some(run_command_args.join(", "))
+    } else {
+        None
+    }
 }
 
-fn delete_container(id: &str) {
-    let mut cmd = Cmd::new("docker")
-        .args(&["rm", &id, "-f"])
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
+fn execute(command: &str, args: &str) {
+    let mut cmd = match command {
+        "run" => Cmd::new("docker").args(&["run", "-it", args, "bash"]),
+        "delete" => Cmd::new("docker").args(&["rm", args, "-f"]),
+        "pull" => Cmd::new("docker").args(&["pull", args]),
+        _ => panic!("Invalid command"),
+    };
 
-    cmd.wait().expect("Unexpected Error");
-}
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
 
-fn pull_image(image: &str) {
-    let mut cmd = Cmd::new("docker")
-        .args(&["pull", &image])
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
-
-    cmd.wait().expect("Unexpected Error");
+    match cmd.spawn() {
+        Ok(child) => {
+            match child.wait() {
+                Ok(status) => {
+                    if !status.success() {
+                        println!("Command exited with non-zero status: {}", status);
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to wait on child: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            println!("Failed to spawn command: {}", e);
+        }
+    }
 }
