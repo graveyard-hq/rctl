@@ -1,93 +1,73 @@
-use clap::{Arg, ArgAction, Command};
-use std::process::{Command as Cmd, Stdio};
+use clap::{App, Arg, SubCommand};
+use std::process::{Command, Stdio};
 
 fn main() {
-    let matches = Command::new("rctl")
+    let matches = App::new("rctl")
         .about("Development containers made easy.")
         .version("0.1.0")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
         .subcommand(
-            Command::new("run").about("Runs your container").arg(
-                Arg::new("image")
-                    .help("Select your image <debian, fedora, ubuntu>")
-                    .action(ArgAction::Set),
-            ),
-        )
-        .subcommand(
-            Command::new("delete").about("Delete your container").arg(
-                Arg::new("id")
-                    .help("Container ID to delete.")
-                    .action(ArgAction::Set),
-            ),
-        )
-        .subcommand(
-            Command::new("pull")
-                .about("Pull a image from docker registry")
+            SubCommand::with_name("run")
+                .about("Runs your container")
                 .arg(
-                    Arg::new("name")
+                    Arg::with_name("image")
+                        .help("Select your image <debian, fedora, ubuntu>")
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("delete")
+                .about("Delete your container")
+                .arg(Arg::with_name("id").help("Container ID to delete.").required(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("pull")
+                .about("Pull an image from Docker registry")
+                .arg(
+                    Arg::with_name("name")
                         .help("Name of image to use Eg. <debian:latest>")
-                        .action(ArgAction::Set),
+                        .required(true),
                 ),
         )
         .get_matches();
 
     match matches.subcommand() {
-        Some(("run", run_matches)) => {
-            let image = get_args(run_matches, "image").unwrap_or_else(|| "".to_owned());
-            execute("run", &image);
+        ("run", Some(run_matches)) => {
+            let image = run_matches.value_of("image").unwrap();
+            execute("run", &[image, "bash"]);
         }
-        Some(("delete", run_matches)) => {
-            let id = get_args(run_matches, "id").unwrap_or_else(|| "".to_owned());
-            execute("delete", &id);
+        ("delete", Some(delete_matches)) => {
+            let id = delete_matches.value_of("id").unwrap();
+            execute("rm", &[id, "-f"]);
         }
-        Some(("pull", run_matches)) => {
-            let name = get_args(run_matches, "name").unwrap_or_else(|| "".to_owned());
-            execute("pull", &name);
+        ("pull", Some(pull_matches)) => {
+            let name = pull_matches.value_of("name").unwrap();
+            execute("pull", &[name]);
         }
         _ => unreachable!(),
     }
 }
 
-fn get_args(matches: &clap::ArgMatches, name: &str) -> Option<String> {
-    if matches.contains_id(name) {
-        let run_command_args: Vec<_> = matches
-            .get_many::<String>(name)
-            .expect("contains_id")
-            .map(|s| s.as_str())
-            .collect();
-        Some(run_command_args.join(", "))
-    } else {
-        None
-    }
-}
-
-fn execute(command: &str, args: &str) {
+fn execute(command: &str, args: &[&str]) {
     let mut cmd = match command {
-        "run" => Cmd::new("docker").args(&["run", "-it", args, "bash"]),
-        "delete" => Cmd::new("docker").args(&["rm", args, "-f"]),
-        "pull" => Cmd::new("docker").args(&["pull", args]),
+        "run" => Command::new("docker").args(&["run", "-it"]),
+        "rm" => Command::new("docker").arg("rm"),
+        "pull" => Command::new("docker").arg("pull"),
         _ => panic!("Invalid command"),
     };
 
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    cmd.args(args)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
 
     match cmd.spawn() {
-        Ok(child) => {
-            match child.wait() {
-                Ok(status) => {
-                    if !status.success() {
-                        println!("Command exited with non-zero status: {}", status);
-                    }
-                }
-                Err(e) => {
-                    println!("Failed to wait on child: {}", e);
+        Ok(child) => match child.wait() {
+            Ok(status) => {
+                if !status.success() {
+                    println!("Command exited with non-zero status: {}", status);
                 }
             }
-        }
-        Err(e) => {
-            println!("Failed to spawn command: {}", e);
-        }
+            Err(e) => println!("Failed to wait on child: {}", e),
+        },
+        Err(e) => println!("Failed to spawn command: {}", e),
     }
 }
