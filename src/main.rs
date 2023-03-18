@@ -28,6 +28,20 @@ fn main() {
                         .required(true),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("backup")
+                .about("Backup a container to a tarball")
+                .arg(
+                    Arg::with_name("id")
+                        .help("Container ID to backup")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .help("Output file for the backup")
+                        .required(true),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -43,6 +57,11 @@ fn main() {
             let name = pull_matches.value_of("name").unwrap();
             execute("pull", &[name]);
         }
+        ("backup", Some(backup_matches)) => {
+            let id = backup_matches.value_of("id").unwrap();
+            let output = backup_matches.value_of("output").unwrap();
+            execute("save", &[id, "-o", output]);
+        }
         _ => unreachable!(),
     }
 }
@@ -52,6 +71,7 @@ fn execute(command: &str, args: &[&str]) {
         "run" => Command::new("docker").args(&["run", "-it"]),
         "rm" => Command::new("docker").arg("rm"),
         "pull" => Command::new("docker").arg("pull"),
+        "save" => Command::new("docker").arg("save"),
         _ => panic!("Invalid command"),
     };
 
